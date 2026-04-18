@@ -681,13 +681,31 @@ export default function App() {
         {/* Services */}
         <section id="services" className={ui.section}>
           <div ref={rServices.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rServices.visible ? ui.revealVisible : ui.revealHidden}`}>
-            <SectionHeader label="SERVICES" title="Dry cleaning" subtitle="Drop-off and collection available in store." />
-            <div className="mt-7">
+            <SectionHeader label="SERVICES" title="In-store services" subtitle="Everyday services available at the counter." />
+            <div className="mt-7 grid gap-4 md:grid-cols-2">
               <div className={ui.card}>
-                <p className="text-stone-700 dark:text-stone-300 leading-relaxed">
-                  Drop off your items in store and collect when ready. Cleaning is completed by an external professional provider.
-                </p>
-                <p className="mt-3 text-xs text-stone-500 dark:text-stone-500">Turnaround times and pricing may vary.</p>
+                <div className="flex items-start gap-4">
+                  <span className="text-2xl leading-none" aria-hidden="true">👕</span>
+                  <div>
+                    <h4 className="font-semibold mb-1">Dry cleaning</h4>
+                    <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
+                      Drop off your items in store and collect when ready. Cleaning is completed by an external professional provider.
+                    </p>
+                    <p className="mt-3 text-xs text-stone-500 dark:text-stone-500">Turnaround times and pricing may vary.</p>
+                  </div>
+                </div>
+              </div>
+              <div className={ui.card}>
+                <div className="flex items-start gap-4">
+                  <span className="text-2xl leading-none" aria-hidden="true">💨</span>
+                  <div>
+                    <h4 className="font-semibold mb-1">SodaStream gas bottles</h4>
+                    <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
+                      Exchange empty SodaStream gas bottles or buy new ones in store. Bring in your empty bottle for a quick swap.
+                    </p>
+                    <p className="mt-3 text-xs text-stone-500 dark:text-stone-500">Subject to stock availability — call ahead if you need to confirm.</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -835,7 +853,7 @@ export default function App() {
           </div>
           <div className="max-w-7xl mx-auto text-xs text-stone-500 dark:text-stone-500 mt-2 text-center">
             Made by{" "}
-            <a href="https://github.com/lostastr0" target="_blank" rel="noreferrer"
+            <a href="https://jaineel.dev" target="_blank" rel="noreferrer"
               className="font-semibold text-stone-700 dark:text-stone-300 underline decoration-stone-300 dark:decoration-stone-700 hover:decoration-stone-500"
             >Jaineel</a>{" "}
             • Hosted on{" "}
