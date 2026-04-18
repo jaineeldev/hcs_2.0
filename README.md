@@ -50,7 +50,9 @@ https://www.hawthornecornerstore.com.au/
 
 ## 📸 Screenshots
 
-<img width="2849" height="1666" alt="image" src="https://github.com/user-attachments/assets/46b7d140-2565-4729-8510-93293d6ba07b" />
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/46b7d140-2565-4729-8510-93293d6ba07b" width="800"/>
+</p>
 
 ---
 
