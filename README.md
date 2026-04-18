@@ -2,7 +2,6 @@
 
 A simple, modern website built for a local convenience store in Hawthorne, Brisbane.
 
----
 
 ## 🧠 About
 
@@ -10,7 +9,6 @@ This website was created for a family-owned business to provide clear informatio
 
 The goal was to keep the design clean, fast, and easy to use for anyone visiting the site.
 
----
 
 ## 🌐 Features
 
@@ -21,7 +19,6 @@ The goal was to keep the design clean, fast, and easy to use for anyone visiting
 - Light / dark mode  
 - Simple and responsive design  
 
----
 
 ## 🛠️ Tech Stack
 
@@ -29,7 +26,6 @@ The goal was to keep the design clean, fast, and easy to use for anyone visiting
 - Vite  
 - Tailwind CSS  
 
----
 
 ## 📍 About the Store
 
@@ -40,13 +36,11 @@ Hawthorne Corner Store is a local convenience store offering:
 - Dry cleaning drop-off and collection  
 - A small range of tools and hardware  
 
----
 
 ## 🚀 Live Site
 
 https://www.hawthornecornerstore.com.au/
 
----
 
 ## 📸 Screenshots
 
@@ -54,7 +48,6 @@ https://www.hawthornecornerstore.com.au/
   <img src="https://github.com/user-attachments/assets/46b7d140-2565-4729-8510-93293d6ba07b" width="800"/>
 </p>
 
----
 
 ## 👤 Author
 
