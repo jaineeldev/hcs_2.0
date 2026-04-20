@@ -1,54 +1,34 @@
-# Hawthorne Corner Store Website
+# hawthorne corner store
 
-A simple, modern website built for a local convenience store in Hawthorne, Brisbane.
+Website built for a family-owned convenience store in Hawthorne, Brisbane. Focused on being fast, clear, and easy to use for everyday visitors.
 
-
-## 🧠 About
-
-This website was created for a family-owned business to provide clear information about the store, including opening hours, location, and available services.
-
-The goal was to keep the design clean, fast, and easy to use for anyone visiting the site.
-
-
-## 🌐 Features
-
-- Store information and opening hours  
-- “Open now / Closed” status  
-- Google Maps location link  
-- Click-to-call phone support  
-- Light / dark mode  
-- Simple and responsive design  
-
-
-## 🛠️ Tech Stack
-
-- React  
-- Vite  
-- Tailwind CSS  
-
-
-## 📍 About the Store
-
-Hawthorne Corner Store is a local convenience store offering:
-
-- Snacks and cold drinks  
-- Everyday essentials  
-- Dry cleaning drop-off and collection  
-- A small range of tools and hardware  
-
-
-## 🚀 Live Site
-
-https://www.hawthornecornerstore.com.au/
-
-
-## 📸 Screenshots
+**Live site → [hawthornecornerstore.com.au](https://www.hawthornecornerstore.com.au)**
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/46b7d140-2565-4729-8510-93293d6ba07b" width="800"/>
 </p>
 
+## tech
 
-## 👤 Author
+```
+framework   →  React
+bundler     →  Vite
+styling     →  Tailwind CSS
+deployment  →  Vercel
+```
 
-Built by Jaineel as a real-world project for a local business.
+## features
+
+- Live open / closed status based on trading hours
+- Store info, opening hours, and services
+- Click-to-call phone support
+- Google Maps location link
+- Light / dark mode
+- Fully responsive
+
+## running locally
+
+```bash
+npm install
+npm run dev
+```
