@@ -507,6 +507,7 @@ export default function App() {
     ["#instore", "In store"],
     ["#services", "Services"],
     ["#range", "More range"],
+    ["#reviews", "Reviews"],
     ["#hours", "Hours"],
     ["#contact", "Contact"],
   ];
@@ -523,10 +524,17 @@ export default function App() {
     { emoji: "🧰", title: "Hand tools & socket sets", desc: "Handy items for quick jobs." },
   ];
 
+  const reviews = [
+    { name: "Luisa Cali", when: "4 months ago", text: "I have recently moved to Hawthorne and this store has staff that are genuine and ultra friendly. The store looks small but has so many grocery items." },
+    { name: "MrB Greig", when: "2 days ago", text: "A very nice experience here. The couple that helped me out was very friendly. Bought a USB-C cord and socket connection — it ended up working out very well with an amazingly working recharge unit! Highly recommended!" },
+    { name: "Andrew Pollock", when: "2 years ago", text: "Raj is a local legend and the store is incredibly convenient." },
+  ];
+
   const rHero = useRevealOnScroll();
   const rInstore = useRevealOnScroll();
   const rServices = useRevealOnScroll();
   const rRange = useRevealOnScroll();
+  const rReviews = useRevealOnScroll();
   const rHours = useRevealOnScroll();
   const rContact = useRevealOnScroll();
 
@@ -731,8 +739,45 @@ export default function App() {
           </div>
         </section>
 
+        {/* Reviews */}
+        <section id="reviews" className={ui.section}>
+          <div ref={rReviews.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rReviews.visible ? ui.revealVisible : ui.revealHidden}`}>
+            <SectionHeader
+              label="REVIEWS"
+              title="What customers say"
+              subtitle="A few highlights from our Google reviews."
+              right={
+                <a href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer" className={ui.darkPrimarySm}>
+                  ⭐ Read on Google
+                </a>
+              }
+            />
+            <div className="mt-7 grid gap-4 md:grid-cols-3">
+              {reviews.map((r) => (
+                <div key={r.name + r.when} className={ui.card}>
+                  <div className="flex items-center gap-1 text-amber-500" aria-label="5 out of 5 stars">
+                    {"★★★★★".split("").map((s, i) => (
+                      <span key={i} aria-hidden="true">{s}</span>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm text-stone-700 dark:text-stone-300 leading-relaxed">
+                    “{r.text}”
+                  </p>
+                  <div className="mt-4 flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">
+                    <span className="font-semibold text-stone-700 dark:text-stone-300">{r.name}</span>
+                    <span>{r.when}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-stone-500 dark:text-stone-500">
+              Reviews shown are excerpts from public Google reviews.
+            </p>
+          </div>
+        </section>
+
         {/* Hours */}
-        <section id="hours" className={ui.section}>
+        <section id="hours" className={ui.sectionAlt}>
           <div ref={rHours.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rHours.visible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader label="HOURS" title="Opening hours" subtitle="Next 7 days (public holidays flagged)."
               right={<span className="text-xs text-stone-500 dark:text-stone-400">{status.label}</span>}
@@ -779,7 +824,7 @@ export default function App() {
         </section>
 
         {/* Contact */}
-        <section id="contact" className={ui.sectionAlt}>
+        <section id="contact" className={ui.section}>
           <div ref={rContact.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rContact.visible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader label="CONTACT" title="Find us" subtitle="Call, check reviews, or get directions." />
             <div className="mt-7 grid gap-8 lg:grid-cols-2 items-start">
