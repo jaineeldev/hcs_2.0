@@ -1,20 +1,48 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import { track } from "@vercel/analytics";
+import {
+  Sun, Moon, Menu, X, Star, MapPin, Phone,
+  CupSoda, Cookie, ShoppingBag, Shirt, Disc, Wrench,
+  Flame, Milk, Battery, ChefHat, Utensils,
+} from "lucide-react";
 import storefrontImg from "./assets/storefront.jpg";
+
+function IconFacebook({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.242 0-1.63.771-1.63 1.562V12h2.773l-.443 2.891h-2.33v6.987C18.343 21.128 22 16.991 22 12z" />
+    </svg>
+  );
+}
+
+function IconGasBottle({ className, strokeWidth = 1.6 }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth}
+      strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <rect x="10" y="3" width="4" height="5" rx="1" />
+      <rect x="6.5" y="8" width="11" height="13" rx="2.5" />
+      <line x1="6.5" y1="12.5" x2="17.5" y2="12.5" />
+    </svg>
+  );
+}
 
 /* =========================
    Store data
 ========================= */
 const STORE = {
   name: "Hawthorne Corner Store",
-  suburb: "331 Hawthorne Rd, Hawthorne, QLD",
+  suburb: "331 Hawthorne Rd, Hawthorne, QLD 4171",
   phoneDisplay: "(07) 3399 6611",
   phoneTel: "+61733996611",
   mapsQuery: "Hawthorne Corner Store Hawthorne QLD",
 };
 
-const GOOGLE_REVIEWS_URL =
-  "https://www.google.com/search?q=Hawthorne+Corner+Store+Hawthorne+QLD&hl=en";
+const GOOGLE_REVIEWS_URL = "https://www.google.com/maps?cid=8960640778133855742";
+
+const FACEBOOK_URL = "https://www.facebook.com/p/Hawthorne-Corner-Store-100057350894668/";
+
+const PAYMENT_METHODS = ["Eftpos", "Apple Pay", "Google Wallet", "Samsung Pay", "Cash"];
 
 const LAST_UPDATED_LABEL = "December 2025";
 
@@ -170,46 +198,61 @@ function getOpenStatus(now = new Date(), closingSoonMins = 45) {
 }
 
 /* =========================
-   Module-level constants
-========================= */
-const now = new Date();
-const status = getOpenStatus(now, 45);
-const todayHoliday = isHoliday(now);
-const forcedToday = getForcedClosure(now);
-const todaysHours = HOURS.find((h) => h.day === dayNameFromDate(now));
-
-/* =========================
    Theme helper
-   ✅ FIX: always defaults to "light" regardless of system preference
+   Defaults to "light" regardless of system preference
 ========================= */
 function getInitialTheme() {
   try {
     const stored = localStorage.getItem("theme");
     if (stored === "light" || stored === "dark") return stored;
-  } catch {}
-  return "light"; // ✅ light mode default
+  } catch {
+    // localStorage unavailable (private browsing, disabled storage)
+  }
+  return "light";
+}
+
+/* =========================
+   Preloader session gate
+   Only shown once per browser session
+========================= */
+const PRELOADER_SESSION_KEY = "hcs-preloader-shown";
+
+function hasShownPreloader() {
+  try {
+    return sessionStorage.getItem(PRELOADER_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markPreloaderShown() {
+  try {
+    sessionStorage.setItem(PRELOADER_SESSION_KEY, "1");
+  } catch {
+    // sessionStorage unavailable (private browsing, disabled storage)
+  }
 }
 
 /* =========================
    Reveal on scroll
 ========================= */
 function useRevealOnScroll(options = { rootMargin: "0px 0px -10% 0px", threshold: 0.12 }) {
-  const ref = useRef(null);
-  const [visible, setVisible] = useState(false);
+  const domRef = useRef(null);
+  const [visible, setVisible] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false
+  );
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const prefersReduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
-    if (prefersReduced) { setVisible(true); return; }
+    const el = domRef.current;
+    if (!el || visible) return;
     const io = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) { setVisible(true); io.disconnect(); }
     }, options);
     io.observe(el);
     return () => io.disconnect();
-  }, [options]);
+  }, [options, visible]);
 
-  return { ref, visible };
+  return [domRef, visible];
 }
 
 /* =========================
@@ -416,6 +459,14 @@ function HolidayTag({ children, tone = "amber" }) {
   return <span className={"text-[11px] font-semibold px-2 py-1 rounded-full border " + cls}>{children}</span>;
 }
 
+function PaymentChip({ children }) {
+  return (
+    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-stone-200/80 dark:border-stone-800 bg-white/40 dark:bg-black/10 text-stone-700 dark:text-stone-300">
+      {children}
+    </span>
+  );
+}
+
 /* =========================
    Upcoming rows
 ========================= */
@@ -438,7 +489,19 @@ function buildUpcomingRows(baseDate, days = 7) {
    App
 ========================= */
 export default function App() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => hasShownPreloader());
+
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const status = useMemo(() => getOpenStatus(now, 45), [now]);
+  const todayHoliday = useMemo(() => isHoliday(now), [now]);
+  const forcedToday = useMemo(() => getForcedClosure(now), [now]);
+  const todaysHours = useMemo(() => HOURS.find((h) => h.day === dayNameFromDate(now)), [now]);
 
   const mapsLink = useMemo(
     () => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(STORE.mapsQuery)}`,
@@ -449,22 +512,28 @@ export default function App() {
     []
   );
 
-  const [theme, setTheme] = useState("light");
+  const [theme, setTheme] = useState(() => getInitialTheme());
+  const headerRef = useRef(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showMobileCTA, setShowMobileCTA] = useState(false);
   const [mobileCTADismissed, setMobileCTADismissed] = useState(false);
 
   useEffect(() => {
-    const initial = getInitialTheme();
-    setTheme(initial);
-    document.documentElement.classList.toggle("dark", initial === "dark");
-  }, []);
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute(
+      "content",
+      theme === "dark" ? "#161513" : "#f6f0e6"
+    );
+  }, [theme]);
 
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    try { localStorage.setItem("theme", next); } catch {}
-    document.documentElement.classList.toggle("dark", next === "dark");
+    try {
+      localStorage.setItem("theme", next);
+    } catch {
+      // localStorage unavailable (private browsing, disabled storage) — theme just won't persist
+    }
   }
 
   useEffect(() => {
@@ -472,6 +541,24 @@ export default function App() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") setMobileMenuOpen(false);
+    }
+    function onPointerDown(e) {
+      if (headerRef.current && !headerRef.current.contains(e.target)) setMobileMenuOpen(false);
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     function onScroll() {
@@ -505,6 +592,7 @@ export default function App() {
 
   const navLinks = [
     ["#instore", "In store"],
+    ["#finds", "More finds"],
     ["#services", "Services"],
     ["#range", "More range"],
     ["#reviews", "Reviews"],
@@ -513,40 +601,59 @@ export default function App() {
   ];
 
   const essentials = [
-    { emoji: "🥤", title: "Cold drinks", desc: "Local favourites, plus a small range of American drinks." },
-    { emoji: "🍫", title: "Snacks", desc: "Everyday snacks, with some American and Kiwi options available." },
-    { emoji: "🧻", title: "Everyday essentials", desc: "Local basics when you need them." },
+    { icon: CupSoda, title: "Cold drinks", desc: "Local favourites, plus a small range of American drinks." },
+    { icon: Cookie, title: "Snacks", desc: "Everyday snacks, with some American and Kiwi options available." },
+    { icon: ShoppingBag, title: "Everyday essentials", desc: "Local basics when you need them." },
   ];
 
   const extraRange = [
-    { emoji: "🛞", title: "Hand trolley wheels", desc: "Replacement wheels available in store." },
-    { emoji: "🛞", title: "Wheelbarrow wheels", desc: "A small range of options available." },
-    { emoji: "🧰", title: "Hand tools & socket sets", desc: "Handy items for quick jobs." },
+    { icon: Disc, title: "Hand trolley wheels", desc: "Replacement wheels available in store." },
+    { icon: Disc, title: "Wheelbarrow wheels", desc: "A small range of options available." },
+    { icon: Wrench, title: "Hand tools & socket sets", desc: "Handy items for quick jobs." },
+  ];
+
+  const hiddenFinds = [
+    { icon: Flame, title: "Cooking spices", desc: "A large range — cumin, turmeric and more." },
+    { icon: Milk, title: "Ricotta & other cheeses", desc: "A few options beyond the usual block cheddar." },
+    { icon: Battery, title: "Batteries", desc: "Common household sizes." },
+    { icon: ChefHat, title: "Baking needs", desc: "Flour, sugar and other baking basics." },
+    { icon: Utensils, title: "Sauces & marinades", desc: "For a quick dinner without the supermarket trip." },
   ];
 
   const reviews = [
-    { name: "Luisa Cali", when: "4 months ago", text: "I have recently moved to Hawthorne and this store has staff that are genuine and ultra friendly. The store looks small but has so many grocery items." },
-    { name: "MrB Greig", when: "2 days ago", text: "A very nice experience here. The couple that helped me out was very friendly. Bought a USB-C cord and socket connection — it ended up working out very well with an amazingly working recharge unit! Highly recommended!" },
-    { name: "Andrew Pollock", when: "2 years ago", text: "Raj is a local legend and the store is incredibly convenient." },
+    { name: "Luisa Cali", text: "I have recently moved to Hawthorne and this store has staff that are genuine and ultra friendly. The store looks small but has so many grocery items." },
+    { name: "MrB Greig", text: "A very nice experience here. The couple that helped me out was very friendly. Bought a USB-C cord and socket connection — it ended up working out very well with an amazingly working recharge unit! Highly recommended!" },
+    { name: "Andrew Pollock", text: "Raj is a local legend and the store is incredibly convenient." },
+    { name: "Aoifa", text: "Fantastic range of soft drinks, including some international ones! The clerk was lovely and even offered to open my drink for me — great service!" },
+    { name: "Aimee Damerow", text: "This shop regularly saves my life, and they're always very friendly." },
+    { name: "Oliver Krivan", text: "Awesome shop! Some NZ treats too. Friendly guy with a nice smile." },
   ];
 
-  const rHero = useRevealOnScroll();
-  const rInstore = useRevealOnScroll();
-  const rServices = useRevealOnScroll();
-  const rRange = useRevealOnScroll();
-  const rReviews = useRevealOnScroll();
-  const rHours = useRevealOnScroll();
-  const rContact = useRevealOnScroll();
+  const [heroRef, heroVisible] = useRevealOnScroll();
+  const [instoreRef, instoreVisible] = useRevealOnScroll();
+  const [servicesRef, servicesVisible] = useRevealOnScroll();
+  const [rangeRef, rangeVisible] = useRevealOnScroll();
+  const [reviewsRef, reviewsVisible] = useRevealOnScroll();
+  const [hoursRef, hoursVisible] = useRevealOnScroll();
+  const [findsRef, findsVisible] = useRevealOnScroll();
+  const [contactRef, contactVisible] = useRevealOnScroll();
 
-  const upcomingRows = useMemo(() => buildUpcomingRows(now, 7), []);
+  const upcomingRows = useMemo(() => buildUpcomingRows(now, 7), [now]);
 
   return (
     <>
-      {!ready && <Preloader onDone={() => setReady(true)} />}
+      {!ready && <Preloader onDone={() => { markPreloaderShown(); setReady(true); }} />}
 
       <div className={ui.page}>
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-xl focus:bg-[#2b241d] focus:text-[#f5efe6] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9b79f]/70"
+        >
+          Skip to content
+        </a>
+
         {/* Header */}
-        <header className={ui.header}>
+        <header ref={headerRef} className={ui.header}>
           <div className={`${ui.container} py-4 flex items-center justify-between`}>
             <div className="min-w-0">
               <div className="text-base sm:text-lg font-bold tracking-tight truncate">{STORE.name}</div>
@@ -564,17 +671,18 @@ export default function App() {
 
               <button
                 onClick={() => setMobileMenuOpen((v) => !v)}
-                className="md:hidden min-h-[40px] px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white/40 dark:bg-[#1a1916] hover:bg-white/60 dark:hover:bg-stone-800/60 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9b79f]/60"
-                aria-label="Open menu" aria-expanded={mobileMenuOpen}
+                className="md:hidden min-h-[40px] w-[40px] flex items-center justify-center rounded-xl border border-stone-300 dark:border-stone-700 bg-white/40 dark:bg-[#1a1916] hover:bg-white/60 dark:hover:bg-stone-800/60 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9b79f]/60"
+                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"} aria-expanded={mobileMenuOpen}
               >
-                {mobileMenuOpen ? "✕" : "Menu"}
+                {mobileMenuOpen ? <X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> : <Menu className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />}
               </button>
 
               <button onClick={toggleTheme}
-                className="min-h-[40px] text-sm border border-stone-300 dark:border-stone-700 px-3 rounded-xl bg-white/40 dark:bg-[#1a1916] hover:bg-white/60 dark:hover:bg-stone-800/60 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9b79f]/60"
-                aria-label="Toggle theme" title="Toggle theme"
+                className="min-h-[40px] w-[40px] flex items-center justify-center border border-stone-300 dark:border-stone-700 rounded-xl bg-white/40 dark:bg-[#1a1916] hover:bg-white/60 dark:hover:bg-stone-800/60 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9b79f]/60"
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               >
-                {theme === "dark" ? "🌙" : "☀️"}
+                {theme === "dark" ? <Moon className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> : <Sun className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />}
               </button>
             </div>
           </div>
@@ -595,7 +703,7 @@ export default function App() {
         </header>
 
         {/* Hero */}
-        <main ref={rHero.ref} className={`${ui.container} py-12 sm:py-16 ${ui.revealBase} ${rHero.visible ? ui.revealVisible : ui.revealHidden}`}>
+        <main id="main-content" ref={heroRef} className={`${ui.container} py-12 sm:py-16 ${ui.revealBase} ${heroVisible ? ui.revealVisible : ui.revealHidden}`}>
           <div className="grid gap-10 lg:grid-cols-2 items-start">
             <div>
               <SectionLabel>HAWTHORNE • LOCAL CONVENIENCE</SectionLabel>
@@ -608,9 +716,9 @@ export default function App() {
                 Dry cleaning drop-off available in store.
               </p>
               <div className="mt-8 flex gap-3 flex-wrap">
-                <a href={`tel:${STORE.phoneTel}`} className={ui.beigePrimary}>Call Store</a>
-                <a href={mapsLink} target="_blank" rel="noreferrer" className={ui.darkPrimary}>Directions</a>
-                <a href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer" className={ui.darkPrimary}>Google Reviews</a>
+                <a href={`tel:${STORE.phoneTel}`} onClick={() => track("call_click", { location: "hero" })} className={ui.beigePrimary}>Call Store</a>
+                <a href={mapsLink} target="_blank" rel="noreferrer" onClick={() => track("directions_click", { location: "hero" })} className={ui.darkPrimary}>Directions</a>
+                <a href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer" onClick={() => track("reviews_click", { location: "hero" })} className={ui.darkPrimary}>Google Reviews</a>
               </div>
               <p className="mt-4 text-xs text-stone-500 dark:text-stone-500">
                 Stock can change — call if you're chasing something specific.
@@ -665,13 +773,13 @@ export default function App() {
 
         {/* In store */}
         <section id="instore" className={ui.sectionAlt}>
-          <div ref={rInstore.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rInstore.visible ? ui.revealVisible : ui.revealHidden}`}>
+          <div ref={instoreRef} className={`max-w-7xl mx-auto ${ui.revealBase} ${instoreVisible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader label="IN STORE" title="Everyday basics" subtitle="The essentials — quick, local, and easy." />
             <div className="mt-7 grid gap-4 md:grid-cols-3">
               {essentials.map((item) => (
                 <div key={item.title} className={ui.card}>
                   <div className="flex items-start gap-4">
-                    <span className="text-2xl leading-none" aria-hidden="true">{item.emoji}</span>
+                    <item.icon className="h-6 w-6 shrink-0 text-stone-700 dark:text-stone-300" strokeWidth={1.6} aria-hidden="true" />
                     <div>
                       <h4 className="font-semibold mb-1">{item.title}</h4>
                       <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">{item.desc}</p>
@@ -681,23 +789,46 @@ export default function App() {
               ))}
             </div>
             <p className="mt-4 text-xs text-stone-500 dark:text-stone-500">
-              Imported items and specialty stock may vary depending on availability.
+              Imported items and speciality stock may vary depending on availability.
+            </p>
+          </div>
+        </section>
+
+        {/* More finds */}
+        <section id="finds" className={ui.section}>
+          <div ref={findsRef} className={`max-w-7xl mx-auto ${ui.revealBase} ${findsVisible ? ui.revealVisible : ui.revealHidden}`}>
+            <SectionHeader label="MORE FINDS" title="You might not know we stock this" subtitle="A few things people are surprised to find in a corner store." />
+            <div className="mt-7 grid gap-4 md:grid-cols-3">
+              {hiddenFinds.map((item) => (
+                <div key={item.title} className={ui.card}>
+                  <div className="flex items-start gap-4">
+                    <item.icon className="h-6 w-6 shrink-0 text-stone-700 dark:text-stone-300" strokeWidth={1.6} aria-hidden="true" />
+                    <div>
+                      <h4 className="font-semibold mb-1">{item.title}</h4>
+                      <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">{item.desc}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-stone-500 dark:text-stone-500">
+              Stock varies — give us a call if you're after something in particular.
             </p>
           </div>
         </section>
 
         {/* Services */}
-        <section id="services" className={ui.section}>
-          <div ref={rServices.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rServices.visible ? ui.revealVisible : ui.revealHidden}`}>
+        <section id="services" className={ui.sectionAlt}>
+          <div ref={servicesRef} className={`max-w-7xl mx-auto ${ui.revealBase} ${servicesVisible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader label="SERVICES" title="In-store services" subtitle="Everyday services available at the counter." />
             <div className="mt-7 grid gap-4 md:grid-cols-2">
               <div className={ui.card}>
                 <div className="flex items-start gap-4">
-                  <span className="text-2xl leading-none" aria-hidden="true">👕</span>
+                  <Shirt className="h-6 w-6 shrink-0 text-stone-700 dark:text-stone-300" strokeWidth={1.6} aria-hidden="true" />
                   <div>
                     <h4 className="font-semibold mb-1">Dry cleaning</h4>
                     <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                      Drop off your items in store and collect when ready. Cleaning is completed by an external professional provider.
+                      Drop off your items in store and collect when ready. Cleaning is handled by an external dry-cleaning partner.
                     </p>
                     <p className="mt-3 text-xs text-stone-500 dark:text-stone-500">Turnaround times and pricing may vary.</p>
                   </div>
@@ -705,11 +836,11 @@ export default function App() {
               </div>
               <div className={ui.card}>
                 <div className="flex items-start gap-4">
-                  <span className="text-2xl leading-none" aria-hidden="true">💨</span>
+                  <IconGasBottle className="h-6 w-6 shrink-0 text-stone-700 dark:text-stone-300" />
                   <div>
                     <h4 className="font-semibold mb-1">SodaStream gas bottles</h4>
                     <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                      Exchange empty SodaStream gas bottles or buy new ones in store. Bring in your empty bottle for a quick swap.
+                      Bring in your empty SodaStream bottle for a quick exchange, or buy a new one in store.
                     </p>
                     <p className="mt-3 text-xs text-stone-500 dark:text-stone-500">Subject to stock availability — call ahead if you need to confirm.</p>
                   </div>
@@ -720,14 +851,14 @@ export default function App() {
         </section>
 
         {/* More range */}
-        <section id="range" className={ui.sectionAlt}>
-          <div ref={rRange.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rRange.visible ? ui.revealVisible : ui.revealHidden}`}>
+        <section id="range" className={ui.section}>
+          <div ref={rangeRef} className={`max-w-7xl mx-auto ${ui.revealBase} ${rangeVisible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader label="MORE RANGE" title="Handy extras" subtitle="A small selection of tools and replacement wheels available." />
             <div className="mt-7 grid gap-4 md:grid-cols-3">
               {extraRange.map((item) => (
                 <div key={item.title} className={ui.card}>
                   <div className="flex items-start gap-4">
-                    <span className="text-2xl leading-none" aria-hidden="true">{item.emoji}</span>
+                    <item.icon className="h-6 w-6 shrink-0 text-stone-700 dark:text-stone-300" strokeWidth={1.6} aria-hidden="true" />
                     <div>
                       <h4 className="font-semibold mb-1">{item.title}</h4>
                       <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">{item.desc}</p>
@@ -740,45 +871,45 @@ export default function App() {
         </section>
 
         {/* Reviews */}
-        <section id="reviews" className={ui.section}>
-          <div ref={rReviews.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rReviews.visible ? ui.revealVisible : ui.revealHidden}`}>
+        <section id="reviews" className={ui.sectionAlt}>
+          <div ref={reviewsRef} className={`max-w-7xl mx-auto ${ui.revealBase} ${reviewsVisible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader
               label="REVIEWS"
               title="What customers say"
               subtitle="A few highlights from our Google reviews."
               right={
-                <a href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer" className={ui.darkPrimarySm}>
-                  ⭐ Read on Google
+                <a href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer" onClick={() => track("reviews_click", { location: "reviews_section" })} className={`${ui.darkPrimarySm} inline-flex items-center gap-1.5`}>
+                  <Star className="h-3.5 w-3.5" fill="currentColor" strokeWidth={0} aria-hidden="true" />
+                  Read on Google
                 </a>
               }
             />
             <div className="mt-7 grid gap-4 md:grid-cols-3">
               {reviews.map((r) => (
-                <div key={r.name + r.when} className={ui.card}>
-                  <div className="flex items-center gap-1 text-amber-500" aria-label="5 out of 5 stars">
-                    {"★★★★★".split("").map((s, i) => (
-                      <span key={i} aria-hidden="true">{s}</span>
+                <div key={r.name} className={ui.card}>
+                  <div className="flex items-center gap-0.5 text-amber-500" aria-label="5 out of 5 stars">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <Star key={i} className="h-4 w-4" fill="currentColor" strokeWidth={0} aria-hidden="true" />
                     ))}
                   </div>
                   <p className="mt-3 text-sm text-stone-700 dark:text-stone-300 leading-relaxed">
                     “{r.text}”
                   </p>
-                  <div className="mt-4 flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">
-                    <span className="font-semibold text-stone-700 dark:text-stone-300">{r.name}</span>
-                    <span>{r.when}</span>
+                  <div className="mt-4 text-xs font-semibold text-stone-700 dark:text-stone-300">
+                    {r.name}
                   </div>
                 </div>
               ))}
             </div>
             <p className="mt-4 text-xs text-stone-500 dark:text-stone-500">
-              Reviews shown are excerpts from public Google reviews.
+              Shown above are excerpts from our public Google reviews.
             </p>
           </div>
         </section>
 
         {/* Hours */}
-        <section id="hours" className={ui.sectionAlt}>
-          <div ref={rHours.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rHours.visible ? ui.revealVisible : ui.revealHidden}`}>
+        <section id="hours" className={ui.section}>
+          <div ref={hoursRef} className={`max-w-7xl mx-auto ${ui.revealBase} ${hoursVisible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader label="HOURS" title="Opening hours" subtitle="Next 7 days (public holidays flagged)."
               right={<span className="text-xs text-stone-500 dark:text-stone-400">{status.label}</span>}
             />
@@ -824,25 +955,42 @@ export default function App() {
         </section>
 
         {/* Contact */}
-        <section id="contact" className={ui.section}>
-          <div ref={rContact.ref} className={`max-w-7xl mx-auto ${ui.revealBase} ${rContact.visible ? ui.revealVisible : ui.revealHidden}`}>
+        <section id="contact" className={ui.sectionAlt}>
+          <div ref={contactRef} className={`max-w-7xl mx-auto ${ui.revealBase} ${contactVisible ? ui.revealVisible : ui.revealHidden}`}>
             <SectionHeader label="CONTACT" title="Find us" subtitle="Call, check reviews, or get directions." />
             <div className="mt-7 grid gap-8 lg:grid-cols-2 items-start">
               <div className={`${ui.card} h-fit`}>
                 <div className="space-y-2">
-                  <p className="text-stone-700 dark:text-stone-300">
-                    📍 <span className="font-semibold">{STORE.suburb}</span>
+                  <p className="flex items-center gap-2 text-stone-700 dark:text-stone-300">
+                    <MapPin className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-400" strokeWidth={1.75} aria-hidden="true" />
+                    <span className="font-semibold">{STORE.suburb}</span>
                   </p>
-                  <p className="text-stone-700 dark:text-stone-300">
-                    📞{" "}
+                  <p className="flex items-center gap-2 text-stone-700 dark:text-stone-300">
+                    <Phone className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-400" strokeWidth={1.75} aria-hidden="true" />
                     <a href={`tel:${STORE.phoneTel}`}
+                      onClick={() => track("call_click", { location: "contact_info" })}
                       className="font-semibold underline decoration-stone-300 dark:decoration-stone-700 hover:decoration-stone-500"
                     >{STORE.phoneDisplay}</a>
                   </p>
+                  <div className="pt-3">
+                    <div className="text-xs text-stone-500 dark:text-stone-400 mb-2">We accept</div>
+                    <div className="flex gap-2 flex-wrap">
+                      {PAYMENT_METHODS.map((method) => (
+                        <PaymentChip key={method}>{method}</PaymentChip>
+                      ))}
+                    </div>
+                  </div>
                   <div className="pt-4 flex gap-3 flex-wrap">
-                    <a className={ui.beigePrimarySm} href={`tel:${STORE.phoneTel}`}>Call Store</a>
-                    <a className={ui.darkPrimarySm} href={mapsLink} target="_blank" rel="noreferrer">Directions</a>
-                    <a className={ui.darkPrimarySm} href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer">⭐ Google Reviews</a>
+                    <a className={ui.beigePrimarySm} href={`tel:${STORE.phoneTel}`} onClick={() => track("call_click", { location: "contact" })}>Call Store</a>
+                    <a className={ui.darkPrimarySm} href={mapsLink} target="_blank" rel="noreferrer" onClick={() => track("directions_click", { location: "contact" })}>Directions</a>
+                    <a className={`${ui.darkPrimarySm} inline-flex items-center gap-1.5`} href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer" onClick={() => track("reviews_click", { location: "contact" })}>
+                      <Star className="h-3.5 w-3.5" fill="currentColor" strokeWidth={0} aria-hidden="true" />
+                      Google Reviews
+                    </a>
+                    <a className={`${ui.darkPrimarySm} inline-flex items-center gap-1.5`} href={FACEBOOK_URL} target="_blank" rel="noreferrer" onClick={() => track("facebook_click", { location: "contact" })}>
+                      <IconFacebook className="h-3.5 w-3.5" />
+                      Facebook
+                    </a>
                   </div>
                 </div>
               </div>
@@ -863,11 +1011,11 @@ export default function App() {
                 <button onClick={() => setMobileCTADismissed(true)}
                   className="min-h-[32px] px-2 rounded-lg text-sm border border-stone-200/80 dark:border-stone-800 bg-white/30 dark:bg-black/10 hover:bg-white/50 dark:hover:bg-stone-800/60 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9b79f]/60"
                   aria-label="Dismiss quick actions"
-                >✕</button>
+                ><X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /></button>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <a href={`tel:${STORE.phoneTel}`} className={ui.beigePrimary}>Call</a>
-                <a href={mapsLink} target="_blank" rel="noreferrer" className={ui.darkPrimary}>Directions</a>
+                <a href={`tel:${STORE.phoneTel}`} onClick={() => track("call_click", { location: "mobile_cta" })} className={ui.beigePrimary}>Call</a>
+                <a href={mapsLink} target="_blank" rel="noreferrer" onClick={() => track("directions_click", { location: "mobile_cta" })} className={ui.darkPrimary}>Directions</a>
               </div>
             </div>
           </div>
@@ -885,6 +1033,9 @@ export default function App() {
             <div>
               <div className="font-semibold text-stone-900 dark:text-stone-100">Phone</div>
               <div>{STORE.phoneDisplay}</div>
+              <a href={FACEBOOK_URL} target="_blank" rel="noreferrer" onClick={() => track("facebook_click", { location: "footer" })}
+                className="inline-block mt-1 underline decoration-stone-300 dark:decoration-stone-700 hover:decoration-stone-500"
+              >Facebook</a>
             </div>
             <div>
               <div className="font-semibold text-stone-900 dark:text-stone-100">Status</div>

@@ -4,7 +4,77 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f0e6" />
+
     <title>Hawthorne Corner Store</title>
+    <meta name="description" content="Local convenience store in Hawthorne, Brisbane. Snacks, cold drinks and everyday essentials, dry cleaning drop-off, and SodaStream gas bottle exchange. Open daily." />
+    <link rel="canonical" href="https://www.hawthornecornerstore.com.au/" />
+
+    <meta property="og:type" content="business.business" />
+    <meta property="og:title" content="Hawthorne Corner Store" />
+    <meta property="og:description" content="Local convenience store in Hawthorne, Brisbane. Snacks, cold drinks and everyday essentials, dry cleaning drop-off, and SodaStream gas bottle exchange." />
+    <meta property="og:url" content="https://www.hawthornecornerstore.com.au/" />
+    <meta property="og:image" content="https://www.hawthornecornerstore.com.au/og-image.jpg" />
+    <meta property="og:locale" content="en_AU" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Hawthorne Corner Store" />
+    <meta name="twitter:description" content="Local convenience store in Hawthorne, Brisbane. Snacks, cold drinks and everyday essentials, dry cleaning drop-off, and SodaStream gas bottle exchange." />
+    <meta name="twitter:image" content="https://www.hawthornecornerstore.com.au/og-image.jpg" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ConvenienceStore",
+        "name": "Hawthorne Corner Store",
+        "image": "https://www.hawthornecornerstore.com.au/og-image.jpg",
+        "url": "https://www.hawthornecornerstore.com.au/",
+        "telephone": "+61733996611",
+        "priceRange": "$$",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "331 Hawthorne Rd",
+          "addressLocality": "Hawthorne",
+          "addressRegion": "QLD",
+          "postalCode": "4171",
+          "addressCountry": "AU"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": -27.4594724,
+          "longitude": 153.0610762
+        },
+        "openingHoursSpecification": [
+          {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+            "opens": "06:30",
+            "closes": "20:00"
+          },
+          {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Saturday", "Sunday"],
+            "opens": "07:30",
+            "closes": "20:00"
+          }
+        ],
+        "sameAs": [
+          "https://www.facebook.com/p/Hawthorne-Corner-Store-100057350894668/"
+        ]
+      }
+    </script>
+
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var theme = stored === "light" || stored === "dark" ? stored : "light";
+          if (theme === "dark") {
+            document.documentElement.classList.add("dark");
+            document.querySelector('meta[name="theme-color"]').setAttribute("content", "#161513");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
