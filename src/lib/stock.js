@@ -1,20 +1,20 @@
 /* =========================
-   Out-of-stock toggles — backed by the real stock_overrides table via
-   /api/stock. Staff mark a product out of stock here; the order page
-   polls this to hide the "Add" control for that product.
+   Out-of-stock list — backed by the stock_overrides table via /api/stock.
+   Keys are whole product ids or exact items (see products.js variantsOf /
+   isItemOut). The order page polls this; staff set it from the stock panel.
 ========================= */
-export async function getOutOfStockIds() {
+export async function getOutOfStockKeys() {
   const res = await fetch("/api/stock");
   if (!res.ok) throw new Error("Failed to load stock.");
   const data = await res.json();
-  return data.outOfStockIds;
+  return data.outOfStock;
 }
 
-export async function setProductStock(productId, inStock) {
+export async function setStockKey(key, inStock) {
   const res = await fetch("/api/stock", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ productId, outOfStock: !inStock }),
+    body: JSON.stringify({ key, outOfStock: !inStock }),
   });
   if (!res.ok) throw new Error("Failed to update stock.");
   return res.json();

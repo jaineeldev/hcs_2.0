@@ -86,7 +86,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing or invalid order reference." });
   }
 
-  const rows = await sql`SELECT name, email FROM orders WHERE order_number = ${orderNumber}`;
+  const rows = await sql`SELECT name, email FROM orders WHERE order_number = ${orderNumber} AND status <> 'pending_payment'`;
   const order = rows[0];
   if (!order) {
     return res.status(404).json({ error: "Order not found." });

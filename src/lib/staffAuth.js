@@ -1,44 +1,37 @@
 /* =========================
-   Staff passcode gate — the real check now happens server-side
-   (api/staff-login.js sets an HttpOnly cookie after verifying the
-   passcode against the server-only STAFF_PASSCODE env var). This file
-   just tracks a lightweight "don't re-show the login form" UI flag for
-   the current tab; it grants no access on its own — every staff API
-   call is independently checked against the real cookie.
+   Staff login — client side. The real check is server-side: a successful
+   /api/staff-login sets a 7-day HttpOnly cookie, and every staff API call is
+   checked against it. Page JS can't read that cookie, so the staff page asks
+   /api/staff-session whether this device is still logged in — that's what
+   lets the counter tablet skip the PIN screen after the tab is closed.
 ========================= */
-const UNLOCK_KEY = "hcs-staff-unlocked";
 
-export function isStaffUnlocked() {
+export async function checkStaffSession() {
   try {
-    return sessionStorage.getItem(UNLOCK_KEY) === "1";
+    const res = await fetch("/api/staff-session", { cache: "no-store" });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Boolean(data.loggedIn);
   } catch {
     return false;
   }
 }
 
-export function setStaffUnlocked() {
-  try {
-    sessionStorage.setItem(UNLOCK_KEY, "1");
-  } catch {
-    // sessionStorage unavailable — stays unlocked for this render only
-  }
-}
-
+// → { result: "ok" | "wrong" | "locked" | "error", triesLeft?, message? }
 export async function staffLogin(passcode) {
   const res = await fetch("/api/staff-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ passcode }),
   });
-  return res.ok;
+  if (res.ok) return { result: "ok" };
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) return { result: "wrong", triesLeft: data.triesLeft };
+  if (res.status === 429) return { result: "locked", message: data.error };
+  return { result: "error" };
 }
 
 export async function staffLogout() {
-  try {
-    sessionStorage.removeItem(UNLOCK_KEY);
-  } catch {
-    // sessionStorage unavailable
-  }
   try {
     await fetch("/api/staff-logout", { method: "POST" });
   } catch (err) {

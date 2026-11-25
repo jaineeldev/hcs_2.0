@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Sun, Moon, ArrowLeft } from "lucide-react";
 import { STORE } from "../lib/store.js";
 import { ui, getInitialTheme, setStoredTheme } from "../lib/theme.js";
-import { PACKING_FEE, MIN_ORDER_AMOUNT, formatPrice } from "../data/products.js";
+import { PACKING_FEE, MIN_ORDER_AMOUNT, MAX_ORDER_AMOUNT, formatPrice } from "../data/products.js";
 import { useEffect, useState } from "react";
 
 const LAST_UPDATED = "14 November 2026";
@@ -67,7 +67,7 @@ export default function Terms() {
             A flat {formatPrice(PACKING_FEE)} packing fee applies to Click &amp; Collect orders, shown before you start adding items — it's the
             same regardless of how you pay, not a card surcharge. Shopping in-store has no packing fee.
           </p>
-          <p>There's a {formatPrice(MIN_ORDER_AMOUNT)} minimum order (before the packing fee) for Click &amp; Collect. All prices include GST.</p>
+          <p>Click &amp; Collect orders must be between {formatPrice(MIN_ORDER_AMOUNT)} and {formatPrice(MAX_ORDER_AMOUNT)} (before the packing fee). For bigger orders, please call the store. All prices include GST.</p>
           <p>Prices and stock availability are correct at the time of ordering but may change without notice.</p>
         </Section>
 

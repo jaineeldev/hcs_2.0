@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Sun, Moon, ArrowLeft, Phone, Clock } from "lucide-react";
+import { Sun, Moon, ArrowLeft, Phone } from "lucide-react";
 import { STORE } from "../lib/store.js";
 import { ui, getInitialTheme, setStoredTheme } from "../lib/theme.js";
 import { useEffect, useState } from "react";
@@ -36,25 +36,22 @@ export default function OrderComingSoon() {
 
       <main className={`${ui.container} py-20 sm:py-28 max-w-xl text-center`}>
         <div className="text-[11px] tracking-[0.16em] uppercase text-stone-500 dark:text-stone-400 font-semibold">CLICK &amp; COLLECT</div>
-        <h1 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight">Online ordering isn't live just yet</h1>
+        <h1 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight">We're still working on this</h1>
         <p className="mt-4 text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
-          We're putting the finishing touches on Click &amp; Collect. In the meantime, everything's available in store as usual.
+          Online ordering isn't available yet — it'll be ready soon. Until then, everything's available
+          in store as usual.
         </p>
 
         <div className="mt-8 flex items-center justify-center gap-3 flex-wrap">
-          <a href={`tel:${STORE.phoneTel}`} className={`${ui.beigePrimary} inline-flex items-center gap-2`}>
+          <Link to="/" className={`${ui.beigePrimary} inline-flex items-center gap-2`}>
+            <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+            Back to the homepage
+          </Link>
+          <a href={`tel:${STORE.phoneTel}`} className={`${ui.darkPrimary} inline-flex items-center gap-2`}>
             <Phone className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             Call the store
           </a>
-          <Link to="/#hours" className={`${ui.darkPrimary} inline-flex items-center gap-2`}>
-            <Clock className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-            Opening hours
-          </Link>
         </div>
-
-        <Link to="/" className="mt-10 inline-block text-sm underline decoration-stone-300 dark:decoration-stone-700 underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100 hover:decoration-stone-500 transition">
-          Back to the homepage
-        </Link>
       </main>
     </div>
   );

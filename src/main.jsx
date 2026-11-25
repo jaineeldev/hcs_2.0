@@ -6,6 +6,7 @@ import App from './App.jsx'
 import Order from './pages/Order.jsx'
 import OrderComingSoon from './pages/OrderComingSoon.jsx'
 import Staff from './pages/Staff.jsx'
+import StaffHistory from './pages/StaffHistory.jsx'
 import Privacy from './pages/Privacy.jsx'
 import Terms from './pages/Terms.jsx'
 import NotFound from './pages/NotFound.jsx'
@@ -18,6 +19,7 @@ createRoot(document.getElementById('root')).render(
         <Route path="/" element={<App />} />
         <Route path="/order" element={ORDERING_ENABLED ? <Order /> : <OrderComingSoon />} />
         <Route path="/staff" element={<Staff />} />
+        <Route path="/staff/history" element={<StaffHistory />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="*" element={<NotFound />} />

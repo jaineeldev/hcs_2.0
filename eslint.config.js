@@ -27,7 +27,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['*.config.js', 'api/**/*.js', 'src/lib/db.js', 'src/lib/staffSession.js', 'scripts/**/*.{js,mjs}'],
+    files: ['*.config.js', 'api/**/*.js', 'src/lib/db.js', 'src/lib/staffSession.js', 'src/lib/checkout.js', 'scripts/**/*.{js,mjs}'],
     languageOptions: {
       globals: globals.node,
     },

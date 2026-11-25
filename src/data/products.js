@@ -12,11 +12,22 @@ import {
    Prices and real stock brands below are drawn from the store's own
    Stock Item Sales Report (top sellers, cigarettes/tobacco excluded —
    age-restricted products aren't sold through unverified online pre-pay).
+   Every price must be a real shelf price (ends in 0/5 cents, or .99).
+   Gross inc ÷ Quantity from a year-long report is only evidence: it averages
+   old prices, new prices and specials, so it produces fake prices like $4.17.
+   Only use it where it lands exactly on a clean price; otherwise the shelf
+   price has to come from the store. The report's "Unit Price inc" column is
+   the store's cost price — never a selling price.
 
    Each product has one or more `sizes` (each with its own
    price) and an optional `flavours` list. `flavourLabel`
    overrides the dropdown's label when "Flavour" doesn't fit
    (e.g. milk's "Full Cream / Lite / Skim" is really a type).
+
+   A size can also narrow which flavours it comes in (`flavours`) and give
+   individual flavours their own shelf price (`flavourPrices`). Always read
+   prices through priceFor() / flavoursFor() — the client and the server
+   checkout both do, so they can never disagree.
 ========================= */
 export const CATEGORIES = ["Cold Drinks", "Snacks & Chocolate", "Dairy & Bakery", "Household"];
 
@@ -30,36 +41,41 @@ export const PACKING_FEE = 2.0;
 // Minimum order value (items only, before the packing fee) for Click & Collect.
 export const MIN_ORDER_AMOUNT = 20.0;
 
+// Maximum order value (items only, before the packing fee). Limits the damage
+// from a stolen card (big baskets are the usual card-fraud pattern, and a
+// chargeback loses the goods and the money) and stops one order emptying a
+// shelf. Bigger orders go by phone so staff can check stock and the customer.
+export const MAX_ORDER_AMOUNT = 150.0;
+
 export const PRODUCTS = [
   // Cold Drinks
   {
     id: "coke", icon: CupSoda, image: "/images/logos/coke.png", category: "Cold Drinks", name: "Coca-Cola",
+    // Flavours per size = exactly what the till sells in that size.
+    // ("Coca-Cola Zero" is the till's "Coca Cola No Sugar".)
     sizes: [
-      { label: "Can 375ml", price: 3.5 },
-      { label: "Bottle 600ml", price: 5.55 },
-      { label: "1.25L", price: 5.75 },
-      { label: "2L", price: 7.6 },
+      { label: "Can 375ml", price: 3.5, flavours: ["Coca-Cola", "Coca-Cola Zero", "Diet Coke"] },
+      { label: "Bottle 600ml", price: 5.75, flavours: ["Coca-Cola", "Coca-Cola Zero", "Coca-Cola Zero Vanilla"] },
+      { label: "1.25L", price: 5.95, flavours: ["Coca-Cola", "Coca-Cola Zero", "Coca-Cola Zero Caffeine Free"] },
+      { label: "2L", price: 7.95, flavours: ["Coca-Cola"] },
     ],
-    flavours: [
-      "Coca-Cola", "Coca-Cola Zero", "Coca-Cola Vanilla", "Coca-Cola Cherry", "Diet Coke",
-      "Sprite", "Sprite Zero", "Fanta Orange", "Fanta Raspberry", "Fanta Grape",
-    ],
+    flavours: ["Coca-Cola", "Coca-Cola Zero", "Diet Coke", "Coca-Cola Zero Vanilla", "Coca-Cola Zero Caffeine Free"],
   },
   {
     id: "pepsi", icon: CupSoda, image: "/images/logos/pepsi.svg", category: "Cold Drinks", name: "Pepsi",
     sizes: [
-      { label: "Can 375ml", price: 3.5 },
-      { label: "Bottle 600ml", price: 5.3 },
-      { label: "1.25L", price: 5.5 },
+      { label: "Can 375ml", price: 3.5, flavours: ["Pepsi", "Pepsi Max", "Solo"] },
+      { label: "Bottle 600ml", price: 5.5, flavours: ["Pepsi Max", "Solo Zero", "Mountain Dew"] },
+      { label: "1.25L", price: 5.5, flavours: ["Pepsi Max", "Solo", "Solo Lime Zero"], flavourPrices: { Solo: 5.75, "Solo Lime Zero": 5.75 } },
     ],
-    flavours: ["Pepsi", "Pepsi Max", "Mountain Dew", "Solo"],
+    flavours: ["Pepsi", "Pepsi Max", "Solo", "Solo Zero", "Solo Lime Zero", "Mountain Dew"],
   },
   {
     id: "schweppes", icon: CupSoda, image: "/images/logos/schweppes.png", category: "Cold Drinks", name: "Schweppes",
     sizes: [
-      { label: "1.1L", price: 5.05 },
+      { label: "1.1L", price: 5.25 },
     ],
-    flavours: ["Lemonade", "Dry Ginger Ale", "Soda Water", "Tonic Water", "Lemon Lime & Bitters", "Creaming Soda"],
+    flavours: ["Lemonade", "Soda Water", "Tonic Water", "Raspberry"],
   },
   {
     id: "nu-water", icon: GlassWater, category: "Cold Drinks", name: "Nu Water",
@@ -72,18 +88,18 @@ export const PRODUCTS = [
   {
     id: "red-bull", icon: Zap, image: "/images/logos/red-bull.svg", category: "Cold Drinks", name: "Red Bull",
     sizes: [
-      { label: "250ml", price: 4.2 },
-      { label: "473ml", price: 6.8 },
+      { label: "250ml", price: 4.25 },
+      { label: "473ml", price: 6.95, flavours: ["Original"] },
     ],
-    flavours: ["Original", "Sugar Free", "Blue Edition", "Red Edition"],
+    flavours: ["Original", "Sugar Free", "Grapefruit Blossom", "The Berry"],
   },
   {
     id: "v-energy", icon: Zap, image: "/images/logos/v-energy.svg", category: "Cold Drinks", name: "V Energy Drink",
     sizes: [
-      { label: "250ml", price: 3.7 },
-      { label: "500ml", price: 5.5 },
+      { label: "250ml", price: 3.75 },
+      { label: "500ml", price: 5.75, flavours: ["Original", "Blue"] },
     ],
-    flavours: ["Original", "Sugar Free", "Blue"],
+    flavours: ["Original", "Sugar Free", "Blue", "Raspberry Lemon Guarana"],
   },
   {
     id: "monster", icon: Zap, image: "/images/logos/monster.png", category: "Cold Drinks", name: "Monster Energy",
@@ -101,12 +117,12 @@ export const PRODUCTS = [
   },
   {
     id: "gatorade", icon: CupSoda, image: "/images/logos/gatorade.svg", category: "Cold Drinks", name: "Gatorade",
-    sizes: [{ label: "600ml", price: 4.55 }],
+    sizes: [{ label: "600ml", price: 4.8 }],
     flavours: ["Glacier Freeze", "Peach", "Grape", "Blue", "Tropical"],
   },
   {
     id: "powerade", icon: CupSoda, image: "/images/logos/powerade.svg", category: "Cold Drinks", name: "Powerade",
-    sizes: [{ label: "600ml", price: 4.95 }],
+    sizes: [{ label: "600ml", price: 4.99 }],
     flavours: ["Berry Ice", "Mountain Blast", "Gold Rush", "Blackcurrant", "Zero Mountain"],
   },
   {
@@ -119,36 +135,36 @@ export const PRODUCTS = [
   {
     id: "smiths-chips", icon: Popcorn, image: "/images/logos/smiths-chips.png", category: "Snacks & Chocolate", name: "Smith's Chips",
     sizes: [
-      { label: "45g", price: 2.2 },
-      { label: "170g", price: 4.95 },
+      { label: "45g", price: 2.2, flavours: ["Original"] },
+      { label: "170g", price: 5.25, flavours: ["Salt & Vinegar", "Cheese & Onion", "Sour Cream & Onion", "BBQ", "Chicken"] },
     ],
-    flavours: ["Original", "Salt & Vinegar", "Chicken", "BBQ"],
+    flavours: ["Original", "Salt & Vinegar", "Cheese & Onion", "Sour Cream & Onion", "BBQ", "Chicken"],
   },
   {
     id: "rrd-chips", icon: Popcorn, image: "/images/logos/rrd-chips.png", category: "Snacks & Chocolate", name: "Red Rock Deli Chips",
     sizes: [
-      { label: "165g", price: 6.45 },
+      { label: "165g", price: 6.55 },
     ],
-    flavours: ["Sea Salt", "Honey Soy Chicken", "Lime & Cracked Pepper", "Sweet Chilli & Sour Cream"],
+    flavours: ["Sea Salt", "Salt & Vinegar", "Honey Soy Chicken", "Sweet Chilli & Sour Cream"],
   },
   {
     id: "doritos", icon: Popcorn, image: "/images/logos/doritos.png", imageBg: "dark", category: "Snacks & Chocolate", name: "Doritos",
     sizes: [
       { label: "170g", price: 5.25 },
     ],
-    flavours: ["Cheese Supreme", "Salsa", "Sweet Chilli"],
+    flavours: ["Cheese Supreme", "Original"],
   },
   {
     id: "pringles", icon: Popcorn, image: "/images/logos/pringles.avif", category: "Snacks & Chocolate", name: "Pringles",
-    sizes: [{ label: "134g", price: 5.0 }],
-    flavours: ["Sour Cream & Onion", "Original", "BBQ", "Salt & Vinegar"],
+    sizes: [{ label: "134g", price: 5.5 }],
+    flavours: ["Sour Cream & Onion", "Original", "BBQ", "Salt & Vinegar", "Chilli & Lime"],
   },
   {
     id: "cadbury", icon: Candy, image: "/images/logos/cadbury.png", category: "Snacks & Chocolate", name: "Cadbury Dairy Milk",
     sizes: [
       { label: "180g", price: 7.5 },
     ],
-    flavours: ["Dairy Milk", "Caramello", "Fruit & Nut", "Marble"],
+    flavours: ["Dairy Milk", "Fruit & Nut", "Hazelnut", "Snack", "Turkish Delight"],
   },
   {
     id: "mars", icon: Candy, image: "/images/logos/mars.svg", category: "Snacks & Chocolate", name: "Mars Bar",
@@ -158,11 +174,11 @@ export const PRODUCTS = [
   },
   {
     id: "kinder-bueno", icon: Candy, image: "/images/logos/kinder-bueno.png", category: "Snacks & Chocolate", name: "Kinder Bueno",
-    sizes: [{ label: "43g", price: 3.25 }],
+    sizes: [{ label: "43g", price: 3.5 }],
   },
   {
     id: "kinder-joy", icon: Candy, image: "/images/logos/kinder-joy.png", category: "Snacks & Chocolate", name: "Kinder Joy",
-    sizes: [{ label: "20g", price: 4.0 }],
+    sizes: [{ label: "20g", price: 3.99 }],
   },
   {
     id: "snickers", icon: Candy, image: "/images/logos/snickers.svg", category: "Snacks & Chocolate", name: "Snickers",
@@ -181,26 +197,41 @@ export const PRODUCTS = [
     sizes: [{ label: "43g", price: 2.95 }],
   },
   {
+    // Logo: Wikipedia's "Allen's" article file Allens_brand_logo.png
+    // (English Wikipedia, marked public domain — a simple text logo).
+    // 200g Snakes Alive is on the till (code 341, $5.25). The 190g bags were
+    // supplied by Jaineel on 2026-11-24 at $5.25 each — they have no sales on
+    // the till report yet, so their price comes from him, not Price 1.
+    id: "allens", icon: Candy, image: "/images/logos/allens.webp", category: "Snacks & Chocolate", name: "Allen's Lollies",
+    sizes: [
+      { label: "190g", price: 5.25, flavours: ["Party Mix", "Jelly Beans", "Cheekies", "Peaches & Cream"] },
+      { label: "200g", price: 5.25, flavours: ["Snakes Alive"] },
+    ],
+    flavours: ["Party Mix", "Jelly Beans", "Cheekies", "Peaches & Cream", "Snakes Alive"],
+    flavourLabel: "Variety",
+  },
+  {
     id: "tim-tams", icon: Cookie, image: "/images/logos/tim-tams.png", category: "Snacks & Chocolate", name: "Arnott's Tim Tams",
     sizes: [
       { label: "200g", price: 6.25 },
     ],
-    flavours: ["Original", "Double Coat", "Caramel", "White"],
+    flavours: ["Original", "Double Coat"],
   },
 
   // Dairy & Bakery
   {
     id: "milk", icon: Milk, image: "/images/logos/milk.png", category: "Dairy & Bakery", name: "Norco Milk",
     sizes: [
-      { label: "1L", price: 3.05 },
-      { label: "2L", price: 4.8 },
+      // 2% isn't stocked in 1L. Each type has its own shelf price.
+      { label: "1L", price: 3.15, flavours: ["Full Cream", "Lite"], flavourPrices: { Lite: 3.55 } },
+      { label: "2L", price: 5.0, flavourPrices: { Lite: 5.1, "2%": 5.6 } },
     ],
     flavours: ["Full Cream", "Lite", "2%"],
     flavourLabel: "Type",
   },
   {
     id: "eggs", icon: Egg, image: "/images/logos/eggs.png", category: "Dairy & Bakery", name: "Canobolas Free Range Eggs",
-    sizes: [{ label: "12 Pack (700g)", price: 9.1 }],
+    sizes: [{ label: "12 Pack (700g)", price: 8.95 }],
   },
   {
     id: "best-buy-bread", icon: Wheat, category: "Dairy & Bakery", name: "Best Buy Bread",
@@ -231,6 +262,68 @@ export const PRODUCTS = [
     ],
   },
 ];
+
+function findSize(product, size) {
+  return product.sizes.find((s) => s.label === size) || null;
+}
+
+// Flavours available in a given size (null when the product has none).
+export function flavoursFor(product, size) {
+  const sizeEntry = findSize(product, size);
+  return sizeEntry?.flavours || product.flavours || null;
+}
+
+// Shelf price for an exact size + flavour, or null if that combination
+// doesn't exist.
+export function priceFor(product, size, flavour) {
+  const sizeEntry = findSize(product, size);
+  if (!sizeEntry) return null;
+  const available = flavoursFor(product, size);
+  if (available && !available.includes(flavour)) return null;
+  return sizeEntry.flavourPrices?.[flavour] ?? sizeEntry.price;
+}
+
+// Lowest price across every size/flavour, for "From $x" labels.
+export function lowestPrice(product) {
+  return Math.min(...product.sizes.flatMap((s) => [s.price, ...Object.values(s.flavourPrices || {})]));
+}
+
+/* =========================
+   Stock
+   Staff can mark either a whole product out (key = product id, e.g. "monster")
+   or one exact item (key = variantKey, e.g. "monster::500ml::Mango Loco").
+   These helpers are the single rule for "is this out?" — used by the order
+   page, the staff panel and the server checkout alike.
+========================= */
+
+// Every orderable size/flavour of a product, with its stock key.
+export function variantsOf(product) {
+  return product.sizes.flatMap((s) =>
+    (flavoursFor(product, s.label) || [null]).map((flavour) => ({
+      key: variantKey(product.id, s.label, flavour),
+      size: s.label,
+      flavour,
+    })),
+  );
+}
+
+export function isItemOut(outKeys, productId, size, flavour) {
+  return outKeys.has(productId) || outKeys.has(variantKey(productId, size, flavour));
+}
+
+// "in" (everything orderable), "partial" (some items out) or "out" (nothing orderable).
+export function productStock(outKeys, product) {
+  if (outKeys.has(product.id)) return "out";
+  const variants = variantsOf(product);
+  const outCount = variants.filter((v) => outKeys.has(v.key)).length;
+  if (outCount === 0) return "in";
+  return outCount === variants.length ? "out" : "partial";
+}
+
+// A stock key staff are allowed to set: a real product id or a real item.
+export function isValidStockKey(key) {
+  return PRODUCTS.some((p) => p.id === key || variantsOf(p).some((v) => v.key === key));
+}
 
 export function formatPrice(n) {
   return `$${n.toFixed(2)}`;

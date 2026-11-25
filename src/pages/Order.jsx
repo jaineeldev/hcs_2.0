@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { track } from "@vercel/analytics";
 import {
@@ -8,13 +8,23 @@ import {
 import { STORE } from "../lib/store.js";
 import { buildPickupSlots, getOpenStatus } from "../lib/hours.js";
 import { ui, getInitialTheme, setStoredTheme, disabledClass } from "../lib/theme.js";
-import { PRODUCTS, CATEGORIES, PACKING_FEE, MIN_ORDER_AMOUNT, formatPrice, variantKey, variantLabel } from "../data/products.js";
-import { getOutOfStockIds } from "../lib/stock.js";
+import { PRODUCTS, CATEGORIES, PACKING_FEE, MIN_ORDER_AMOUNT, MAX_ORDER_AMOUNT, formatPrice, variantKey, variantLabel, flavoursFor, priceFor, lowestPrice, isItemOut, productStock } from "../data/products.js";
+import { getOutOfStockKeys } from "../lib/stock.js";
 import { getOrderingMode, applyOrderingOverride } from "../lib/orderingOverride.js";
 import { isValidName, isValidAuPhone, isValidEmail } from "../lib/validate.js";
-import { loadSquareSdk } from "../lib/square.js";
 
 const CART_STORAGE_KEY = "hcs-click-collect-cart-v2";
+
+// Square sends the customer back to /order?paid=<checkout token> after paying.
+function readReturnToken() {
+  try {
+    return new URLSearchParams(window.location.search).get("paid");
+  } catch {
+    return null;
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function readStoredCart() {
   try {
@@ -32,10 +42,6 @@ function writeStoredCart(cart) {
   } catch {
     // sessionStorage unavailable (private browsing, disabled storage)
   }
-}
-
-function makeOrderNumber() {
-  return `HCS-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 }
 
 function DemoBanner() {
@@ -79,23 +85,29 @@ function Stepper({ qty, onChange, min = 1, name, compact = false }) {
   );
 }
 
-function OptionChips({ legend, options, value, onChange }) {
+function OptionChips({ legend, options, value, onChange, unavailable }) {
   return (
     <fieldset>
       <legend className="text-xs font-semibold text-stone-600 dark:text-stone-400 mb-2">{legend}</legend>
       <div className="flex flex-wrap gap-2">
         {options.map((option) => {
           const selected = option === value;
+          const isOut = unavailable?.has(option);
           return (
             <button
               key={option}
               type="button"
               onClick={() => onChange(option)}
+              disabled={isOut}
               aria-pressed={selected}
+              aria-label={isOut ? `${option}, out of stock` : undefined}
+              title={isOut ? "Out of stock" : undefined}
               className={
-                selected
-                  ? "min-h-[40px] px-3.5 rounded-full text-sm font-semibold bg-[#d9c3a6] text-[#2a231b] border border-[#c9b79f]"
-                  : "min-h-[40px] px-3.5 rounded-full text-sm font-medium bg-white/50 dark:bg-black/20 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 hover:bg-white/80 dark:hover:bg-stone-800/60 transition"
+                isOut
+                  ? "min-h-[40px] px-3.5 rounded-full text-sm font-medium border border-dashed border-stone-300 dark:border-stone-700 text-stone-400 dark:text-stone-600 line-through cursor-not-allowed"
+                  : selected
+                    ? "min-h-[40px] px-3.5 rounded-full text-sm font-semibold bg-[#d9c3a6] text-[#2a231b] border border-[#c9b79f]"
+                    : "min-h-[40px] px-3.5 rounded-full text-sm font-medium bg-white/50 dark:bg-black/20 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 hover:bg-white/80 dark:hover:bg-stone-800/60 transition"
               }
             >
               {option}
@@ -109,7 +121,7 @@ function OptionChips({ legend, options, value, onChange }) {
 
 function ProductCard({ product, cartLines, inStock, onOpen, onQtyChange, onRemove }) {
   const Icon = product.icon;
-  const fromPrice = Math.min(...product.sizes.map((s) => s.price));
+  const fromPrice = lowestPrice(product);
   const cartQty = cartLines.reduce((sum, l) => sum + l.qty, 0);
 
   return (
@@ -177,9 +189,15 @@ function ProductCard({ product, cartLines, inStock, onOpen, onQtyChange, onRemov
   );
 }
 
-function ProductOptionsModal({ product, onClose, onAdd }) {
-  const [size, setSize] = useState(product.sizes[0].label);
-  const [flavour, setFlavour] = useState(product.flavours ? product.flavours[0] : null);
+function ProductOptionsModal({ product, outOfStock, onClose, onAdd }) {
+  const itemOut = (s, f) => isItemOut(outOfStock, product.id, s, f);
+  const inStockFlavours = (s) => (flavoursFor(product, s) || [null]).filter((f) => !itemOut(s, f));
+  const sizeOut = (s) => inStockFlavours(s).length === 0;
+
+  // Start on the first size/flavour that's actually in stock.
+  const firstSize = (product.sizes.find((s) => !sizeOut(s.label)) || product.sizes[0]).label;
+  const [size, setSize] = useState(firstSize);
+  const [flavour, setFlavour] = useState(() => inStockFlavours(firstSize)[0] ?? null);
   const [qty, setQty] = useState(1);
   const [justAdded, setJustAdded] = useState(false);
 
@@ -191,8 +209,22 @@ function ProductOptionsModal({ product, onClose, onAdd }) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const selectedSize = product.sizes.find((s) => s.label === size) || product.sizes[0];
+  const availableFlavours = flavoursFor(product, size);
+  const unitPrice = priceFor(product, size, flavour) ?? product.sizes[0].price;
   const Icon = product.icon;
+
+  const selectionOut = itemOut(size, flavour);
+  const unavailableSizes = new Set(product.sizes.map((s) => s.label).filter(sizeOut));
+  const unavailableFlavours = new Set((availableFlavours || []).filter((f) => itemOut(size, f)));
+
+  // Some sizes don't come in every flavour (e.g. no 2% milk in 1L), and some
+  // flavours may be out of stock — if the current flavour isn't orderable in
+  // the new size, fall back to the first one that is.
+  function changeSize(nextSize) {
+    setSize(nextSize);
+    const orderable = inStockFlavours(nextSize);
+    if (!orderable.includes(flavour)) setFlavour(orderable[0] ?? null);
+  }
 
   function handleAdd() {
     onAdd(product, size, flavour, qty);
@@ -225,14 +257,14 @@ function ProductOptionsModal({ product, onClose, onAdd }) {
           </div>
           <div>
             <h2 className="text-lg font-bold tracking-tight">{product.name}</h2>
-            <div className="text-sm font-semibold text-stone-600 dark:text-stone-300">{formatPrice(selectedSize.price)}</div>
+            <div className="text-sm font-semibold text-stone-600 dark:text-stone-300">{formatPrice(unitPrice)}</div>
           </div>
         </div>
 
         <div className="mt-6 space-y-5">
-          <OptionChips legend="Size" options={product.sizes.map((s) => s.label)} value={size} onChange={setSize} />
-          {product.flavours && (
-            <OptionChips legend={product.flavourLabel || "Flavour"} options={product.flavours} value={flavour} onChange={setFlavour} />
+          <OptionChips legend="Size" options={product.sizes.map((s) => s.label)} value={size} onChange={changeSize} unavailable={unavailableSizes} />
+          {availableFlavours && (
+            <OptionChips legend={product.flavourLabel || "Flavour"} options={availableFlavours} value={flavour} onChange={setFlavour} unavailable={unavailableFlavours} />
           )}
         </div>
 
@@ -244,15 +276,18 @@ function ProductOptionsModal({ product, onClose, onAdd }) {
         <button
           type="button"
           onClick={handleAdd}
-          className={`${ui.beigePrimary} w-full mt-6 flex items-center justify-center gap-2`}
+          disabled={selectionOut}
+          className={`${disabledClass(ui.beigePrimary)} w-full mt-6 flex items-center justify-center gap-2`}
         >
           {justAdded ? (
             <>
               <Check className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
               Added
             </>
+          ) : selectionOut ? (
+            "Out of stock"
           ) : (
-            `Add to order — ${formatPrice(selectedSize.price * qty)}`
+            `Add to order — ${formatPrice(unitPrice * qty)}`
           )}
         </button>
       </div>
@@ -260,7 +295,17 @@ function ProductOptionsModal({ product, onClose, onAdd }) {
   );
 }
 
-function CartModal({ cartItems, subtotal, packingFee, total, belowMinimum, amountToMinimum, isOpen, openLabel, onQtyChange, onRemove, onCheckout, onClose }) {
+// Shown when the cart is over MAX_ORDER_AMOUNT — big orders go by phone.
+function OverMaxNotice({ amountOver, className = "" }) {
+  return (
+    <p className={`text-sm text-red-600 dark:text-red-400 ${className}`}>
+      Online orders are limited to {formatPrice(MAX_ORDER_AMOUNT)} — remove {formatPrice(amountOver)} to continue, or call us on{" "}
+      <a href={`tel:${STORE.phoneTel}`} className="font-semibold underline">{STORE.phoneDisplay}</a> for bigger orders.
+    </p>
+  );
+}
+
+function CartModal({ cartItems, subtotal, packingFee, total, belowMinimum, amountToMinimum, overMaximum, amountOverMax, isOpen, openLabel, onQtyChange, onRemove, onCheckout, onClose }) {
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === "Escape") onClose();
@@ -334,13 +379,15 @@ function CartModal({ cartItems, subtotal, packingFee, total, belowMinimum, amoun
             </div>
             {!isOpen ? (
               <p className="mt-3 text-sm text-red-600 dark:text-red-400">{openLabel} — online ordering isn't available right now.</p>
+            ) : overMaximum ? (
+              <OverMaxNotice amountOver={amountOverMax} className="mt-3" />
             ) : belowMinimum && (
               <p className="mt-3 text-sm text-red-600 dark:text-red-400">
                 Add {formatPrice(amountToMinimum)} more to reach the {formatPrice(MIN_ORDER_AMOUNT)} minimum order.
               </p>
             )}
 
-            <button onClick={onCheckout} disabled={belowMinimum || !isOpen} className={disabledClass(`${ui.beigePrimary} w-full mt-5`)}>
+            <button onClick={onCheckout} disabled={belowMinimum || overMaximum || !isOpen} className={disabledClass(`${ui.beigePrimary} w-full mt-5`)}>
               Checkout
             </button>
           </>
@@ -355,7 +402,9 @@ export default function Order() {
   const [cart, setCart] = useState(() => readStoredCart());
   const [modalProduct, setModalProduct] = useState(null);
   const [cartOpen, setCartOpen] = useState(false);
-  const [step, setStep] = useState("browse"); // browse | checkout | placing | confirmed
+  const [returnToken] = useState(() => readReturnToken());
+  // browse | checkout | placing (redirecting to Square) | verifying (back from Square) | unpaid | confirmed
+  const [step, setStep] = useState(() => (returnToken ? "verifying" : "browse"));
   const [form, setForm] = useState({ name: "", phone: "", email: "", pickup: "", note: "" });
   const [touched, setTouched] = useState({ name: false, phone: false, email: false });
 
@@ -363,14 +412,10 @@ export default function Order() {
   const phoneValid = isValidAuPhone(form.phone);
   const emailValid = isValidEmail(form.email);
   const [confirmedOrder, setConfirmedOrder] = useState(null);
-  const [orderNumber, setOrderNumber] = useState(null);
   const [paymentError, setPaymentError] = useState("");
-  const [cardReady, setCardReady] = useState(false);
-  const [cardLoadError, setCardLoadError] = useState("");
-  const cardContainerRef = useRef(null);
-  const squareCardRef = useRef(null);
+  const [verifyMessage, setVerifyMessage] = useState("");
   const [confirmedVisible, setConfirmedVisible] = useState(false);
-  const [outOfStockIds, setOutOfStockIds] = useState(() => new Set());
+  const [outOfStock, setOutOfStock] = useState(() => new Set());
   const [orderingMode, setOrderingMode] = useState("auto");
   const [now, setNow] = useState(() => new Date());
 
@@ -389,7 +434,7 @@ export default function Order() {
   useEffect(() => {
     async function refresh() {
       try {
-        setOutOfStockIds(new Set(await getOutOfStockIds()));
+        setOutOfStock(new Set(await getOutOfStockKeys()));
       } catch (err) {
         console.error("Failed to load stock:", err);
       }
@@ -428,43 +473,46 @@ export default function Order() {
     writeStoredCart(cart);
   }, [cart]);
 
-  useEffect(() => {
-    if (step !== "checkout") return;
-    let cancelled = false;
-
-    async function initCard() {
-      setCardLoadError("");
-      const appId = import.meta.env.VITE_SQUARE_APPLICATION_ID;
-      const locationId = import.meta.env.VITE_SQUARE_LOCATION_ID;
-      if (!appId || !locationId) {
-        if (!cancelled) setCardLoadError("Online payment isn't set up yet — please call the store to order.");
-        return;
-      }
+  // Back from Square's payment page: ask our server (which asks Square)
+  // whether the order was actually paid. Square can take a moment to settle,
+  // so a "pending" answer is retried a few times before giving up.
+  async function verifyReturn(token) {
+    setStep("verifying");
+    setVerifyMessage("");
+    for (let attempt = 0; attempt < 6; attempt++) {
       try {
-        const Square = await loadSquareSdk();
-        if (cancelled) return;
-        const payments = Square.payments(appId, locationId);
-        const card = await payments.card();
-        if (cancelled) { card.destroy?.(); return; }
-        await card.attach(cardContainerRef.current);
-        if (cancelled) { card.destroy(); return; }
-        squareCardRef.current = card;
-        setCardReady(true);
+        const res = await fetch("/api/confirm-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.status === "paid") {
+          setConfirmedOrder(data.order);
+          setCart({});
+          track("click_collect_order_paid", { total: Number(data.order.total).toFixed(2) });
+          window.history.replaceState(null, "", "/order");
+          setStep("confirmed");
+          return;
+        }
+        if (!res.ok && res.status !== 502) {
+          setVerifyMessage(data.error || "We couldn't find that order.");
+          setStep("unpaid");
+          return;
+        }
       } catch {
-        if (!cancelled) setCardLoadError("Couldn't load the payment form. Check your connection and try again.");
+        // network blip — fall through to retry
       }
+      await sleep(2000);
     }
+    setVerifyMessage("");
+    setStep("unpaid");
+  }
 
-    if (cartItems.length > 0) initCard();
-
-    return () => {
-      cancelled = true;
-      squareCardRef.current?.destroy?.();
-      squareCardRef.current = null;
-      setCardReady(false);
-    };
+  useEffect(() => {
+    if (returnToken) verifyReturn(returnToken);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  }, []);
 
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
@@ -505,8 +553,11 @@ export default function Order() {
       .map(([key, entry]) => {
         const product = PRODUCTS.find((p) => p.id === entry.productId);
         if (!product) return null;
-        const sizeObj = product.sizes.find((s) => s.label === entry.size) || product.sizes[0];
-        return { key, product, size: entry.size, flavour: entry.flavour, qty: entry.qty, unitPrice: sizeObj.price };
+        // A cart saved before a catalog change can hold a combination that no
+        // longer exists (e.g. 2% milk 1L) — drop it rather than mis-price it.
+        const unitPrice = priceFor(product, entry.size, entry.flavour);
+        if (unitPrice == null) return null;
+        return { key, product, size: entry.size, flavour: entry.flavour, qty: entry.qty, unitPrice };
       })
       .filter(Boolean);
   }, [cart]);
@@ -517,6 +568,9 @@ export default function Order() {
   const orderTotal = subtotal + packingFee;
   const belowMinimum = itemCount > 0 && subtotal < MIN_ORDER_AMOUNT;
   const amountToMinimum = MIN_ORDER_AMOUNT - subtotal;
+  // Compared in cents so float drift (e.g. 150.00000001) can't trip the limit.
+  const overMaximum = Math.round(subtotal * 100) > Math.round(MAX_ORDER_AMOUNT * 100);
+  const amountOverMax = subtotal - MAX_ORDER_AMOUNT;
 
   const cartLinesByProduct = useMemo(() => {
     const groups = {};
@@ -536,8 +590,7 @@ export default function Order() {
   );
 
   function goToCheckout() {
-    if (itemCount === 0 || belowMinimum || !openStatus.isOpen) return;
-    setOrderNumber((prev) => prev || makeOrderNumber());
+    if (itemCount === 0 || belowMinimum || overMaximum || !openStatus.isOpen) return;
     setPaymentError("");
     track("click_collect_checkout_started", { itemCount, subtotal: subtotal.toFixed(2) });
     setStep("checkout");
@@ -549,13 +602,6 @@ export default function Order() {
     setTouched({ name: true, phone: true, email: true });
     setPaymentError("");
     if (!nameValid || !phoneValid || !emailValid || !form.pickup) return;
-    if (!squareCardRef.current) {
-      setPaymentError(cardLoadError || "Payment form isn't ready yet — wait a moment and try again.");
-      return;
-    }
-
-    const activeOrderNumber = orderNumber || makeOrderNumber();
-    if (!orderNumber) setOrderNumber(activeOrderNumber);
 
     const pickupMatch = pickupSlots
       .flatMap((day) => day.times.map((t) => ({ ...t, day: day.label })))
@@ -566,19 +612,11 @@ export default function Order() {
     track("click_collect_order_submit", { itemCount, subtotal: subtotal.toFixed(2) });
 
     try {
-      const tokenResult = await squareCardRef.current.tokenize();
-      if (tokenResult.status !== "OK") {
-        const reason = tokenResult.errors?.[0]?.message || "Check your card details and try again.";
-        throw new Error(reason);
-      }
-
-      const res = await fetch("/api/process-payment", {
+      const res = await fetch("/api/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourceId: tokenResult.token,
-          idempotencyKey: activeOrderNumber,
-          items: cartItems.map((l) => ({ productId: l.product.id, size: l.size, qty: l.qty })),
+          items: cartItems.map((l) => ({ productId: l.product.id, size: l.size, flavour: l.flavour || null, qty: l.qty })),
           name: form.name.trim(),
           phone: form.phone.trim(),
           email: form.email.trim(),
@@ -591,31 +629,15 @@ export default function Order() {
       try {
         data = await res.json();
       } catch {
-        throw new Error("Unexpected response from the payment server.");
+        throw new Error("Couldn't reach the store's server. Check your connection and try again.");
       }
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "The payment could not be processed.");
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || "Couldn't start the payment. Please try again.");
       }
 
-      const order = {
-        orderNumber: activeOrderNumber,
-        items: cartItems,
-        subtotal: data.subtotal,
-        packingFee: data.packingFee,
-        total: data.total,
-        paymentId: data.paymentId,
-        name: form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
-        emailSent: data.emailSent,
-        note: form.note.trim(),
-        pickupLabel: pickupLabelText,
-      };
-      setConfirmedOrder(order);
-      setCart({});
-      track("click_collect_order_paid", { itemCount, total: data.total.toFixed(2) });
-      setStep("confirmed");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      // Off to Square's own payment page. The cart stays in sessionStorage,
+      // so it's still there if the customer comes back without paying.
+      window.location.assign(data.url);
     } catch (err) {
       setPaymentError(err.message || "Something went wrong. Please try again.");
       setStep("checkout");
@@ -624,10 +646,10 @@ export default function Order() {
   }
 
   function startNewOrder() {
-    setForm({ name: "", phone: "", pickup: "", note: "" });
+    setForm({ name: "", phone: "", email: "", pickup: "", note: "" });
     setConfirmedOrder(null);
-    setOrderNumber(null);
     setPaymentError("");
+    setVerifyMessage("");
     setStep("browse");
   }
 
@@ -693,7 +715,7 @@ export default function Order() {
             <div className="mt-5 inline-flex items-start gap-2 text-sm rounded-xl border border-stone-200/80 dark:border-stone-800 bg-[#fbf6ee] dark:bg-[#1a1916] px-4 py-3">
               <Info className="h-4 w-4 shrink-0 mt-0.5 text-stone-500 dark:text-stone-400" strokeWidth={1.75} aria-hidden="true" />
               <span className="text-stone-700 dark:text-stone-300">
-                A flat <span className="font-semibold">{formatPrice(PACKING_FEE)} packing fee</span> applies to Click &amp; Collect orders, with a <span className="font-semibold">{formatPrice(MIN_ORDER_AMOUNT)} minimum order</span> — shop in-store anytime with no fee or minimum.
+                A flat <span className="font-semibold">{formatPrice(PACKING_FEE)} packing fee</span> applies to Click &amp; Collect orders, with a <span className="font-semibold">{formatPrice(MIN_ORDER_AMOUNT)} minimum</span> and <span className="font-semibold">{formatPrice(MAX_ORDER_AMOUNT)} maximum order</span> — shop in-store anytime with no fee or limits.
               </span>
             </div>
 
@@ -707,7 +729,7 @@ export default function Order() {
                         key={product.id}
                         product={product}
                         cartLines={cartLinesByProduct[product.id] || []}
-                        inStock={!outOfStockIds.has(product.id)}
+                        inStock={productStock(outOfStock, product) !== "out"}
                         onOpen={() => setModalProduct(product)}
                         onQtyChange={setCartLineQty}
                         onRemove={removeCartLine}
@@ -723,6 +745,7 @@ export default function Order() {
         {modalProduct && (
           <ProductOptionsModal
             product={modalProduct}
+            outOfStock={outOfStock}
             onClose={() => setModalProduct(null)}
             onAdd={addToCart}
           />
@@ -736,6 +759,8 @@ export default function Order() {
             total={orderTotal}
             belowMinimum={belowMinimum}
             amountToMinimum={amountToMinimum}
+            overMaximum={overMaximum}
+            amountOverMax={amountOverMax}
             isOpen={openStatus.isOpen}
             openLabel={openStatus.label}
             onQtyChange={setCartLineQty}
@@ -810,6 +835,7 @@ export default function Order() {
                   Add {formatPrice(amountToMinimum)} more to reach the {formatPrice(MIN_ORDER_AMOUNT)} minimum order.
                 </p>
               )}
+              {overMaximum && <OverMaxNotice amountOver={amountOverMax} className="mt-3" />}
             </div>
 
             {!openStatus.isOpen ? (
@@ -824,6 +850,11 @@ export default function Order() {
                 <p className="text-sm text-stone-600 dark:text-stone-300">
                   Your order is below the {formatPrice(MIN_ORDER_AMOUNT)} minimum — add {formatPrice(amountToMinimum)} more to continue.
                 </p>
+                <button onClick={() => setStep("browse")} className={`${ui.beigePrimarySm} mt-4`}>Back to menu</button>
+              </div>
+            ) : overMaximum ? (
+              <div className={`${ui.card} mt-4 text-center`}>
+                <OverMaxNotice amountOver={amountOverMax} />
                 <button onClick={() => setStep("browse")} className={`${ui.beigePrimarySm} mt-4`}>Back to menu</button>
               </div>
             ) : (
@@ -928,19 +959,12 @@ export default function Order() {
                   <span className="text-xs font-semibold text-stone-500 dark:text-stone-400">Powered by Square</span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-stone-600 dark:text-stone-400 mb-1">Card details</label>
-                  <div ref={cardContainerRef} className="min-h-[44px] rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-black/30 px-3 py-2.5" />
-                  {!cardReady && !cardLoadError && (
-                    <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">Loading payment form…</p>
-                  )}
-                  {cardLoadError && (
-                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">{cardLoadError}</p>
-                  )}
-                  <p className="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
-                    Encrypted and processed directly by Square — we never see or store your card details.
-                  </p>
-                </div>
+                <p className="text-sm text-stone-700 dark:text-stone-300">
+                  You'll pay on Square's secure checkout page, with card, Apple Pay or Google Pay, then come straight back here.
+                </p>
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  Your payment details are entered on Square's site, not ours — we never see or store them.
+                </p>
 
                 {paymentError && (
                   <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
@@ -949,13 +973,15 @@ export default function Order() {
                   </div>
                 )}
 
-                <button type="submit" disabled={!cardReady} className={`${disabledClass(ui.beigePrimary)} w-full flex items-center justify-center gap-2`}>
+                <button type="submit" className={`${ui.beigePrimary} w-full flex items-center justify-center gap-2`}>
                   <Lock className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
-                  Pay {formatPrice(orderTotal)}
+                  Continue to payment · {formatPrice(orderTotal)}
                 </button>
-                <p className="text-xs text-stone-500 dark:text-stone-500 text-center">
-                  Square sandbox only — use test card 4111 1111 1111 1111, any future expiry, any CVV. No real card is charged.
-                </p>
+                {import.meta.env.VITE_SQUARE_ENV !== "production" && (
+                  <p className="text-xs text-stone-500 dark:text-stone-500 text-center">
+                    Square sandbox only — on Square's page use test card 4111 1111 1111 1111, any future expiry, any CVV. No real card is charged.
+                  </p>
+                )}
               </div>
             </form>
             )}
@@ -966,7 +992,42 @@ export default function Order() {
         {step === "placing" && (
           <div className="max-w-xl mx-auto py-24 flex flex-col items-center text-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-stone-500 dark:text-stone-400" strokeWidth={1.75} aria-hidden="true" />
-            <p className="text-stone-600 dark:text-stone-300">Processing payment…</p>
+            <p className="text-stone-600 dark:text-stone-300">Taking you to Square's secure payment page…</p>
+          </div>
+        )}
+
+        {step === "verifying" && (
+          <div className="max-w-xl mx-auto py-24 flex flex-col items-center text-center gap-3" role="status">
+            <Loader2 className="h-8 w-8 animate-spin text-stone-500 dark:text-stone-400" strokeWidth={1.75} aria-hidden="true" />
+            <p className="text-stone-600 dark:text-stone-300">Confirming your payment with Square…</p>
+          </div>
+        )}
+
+        {step === "unpaid" && (
+          <div className="max-w-xl mx-auto">
+            <div className={`${ui.card} text-center`}>
+              <AlertCircle className="mx-auto h-8 w-8 text-amber-600 dark:text-amber-400" strokeWidth={1.75} aria-hidden="true" />
+              <h1 className="mt-3 text-2xl font-extrabold tracking-tight">Payment not received yet</h1>
+              <p className="mt-2 text-sm text-stone-600 dark:text-stone-300">
+                {verifyMessage || "We haven't seen a completed payment for this order. If you've just paid, it can take a moment — check again. If you cancelled, your cart is still here."}
+              </p>
+              <p className="mt-2 text-sm text-stone-600 dark:text-stone-300">
+                Paid but still seeing this? Call us on{" "}
+                <a href={`tel:${STORE.phoneTel}`} className="font-semibold underline">{STORE.phoneDisplay}</a>{" "}
+                — you won't be charged twice.
+              </p>
+              <div className="mt-6 flex gap-3 justify-center flex-wrap">
+                {returnToken && (
+                  <button onClick={() => verifyReturn(returnToken)} className={ui.beigePrimarySm}>Check again</button>
+                )}
+                <button
+                  onClick={() => { window.history.replaceState(null, "", "/order"); setStep("browse"); }}
+                  className={ui.darkPrimarySm}
+                >
+                  Back to cart
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1009,13 +1070,13 @@ export default function Order() {
               </svg>
               <h1 className="mt-3 text-2xl font-extrabold tracking-tight">Order placed</h1>
               <p className="mt-1 text-sm text-stone-600 dark:text-stone-300">
-                Order <span className="font-semibold">{confirmedOrder.orderNumber}</span> — paid via Square sandbox (test mode).
+                Order <span className="font-semibold">{confirmedOrder.orderNumber}</span> — paid via Square{import.meta.env.VITE_SQUARE_ENV !== "production" ? " sandbox (test mode)" : ""}.
               </p>
 
               <div className="mt-6 text-left space-y-2">
                 {confirmedOrder.items.map((line, i) => (
                   <div
-                    key={line.key}
+                    key={`${line.label}-${i}`}
                     className="flex items-center justify-between text-sm transition-all duration-400 ease-out"
                     style={{
                       transitionDelay: confirmedVisible ? `${250 + i * 60}ms` : "0ms",
@@ -1023,8 +1084,8 @@ export default function Order() {
                       transform: confirmedVisible ? "translateY(0)" : "translateY(4px)",
                     }}
                   >
-                    <span className="text-stone-700 dark:text-stone-300">{line.qty} × {variantLabel(line.product, line.size, line.flavour)}</span>
-                    <span className="font-semibold tabular-nums">{formatPrice(line.qty * line.unitPrice)}</span>
+                    <span className="text-stone-700 dark:text-stone-300">{line.qty} × {line.label}</span>
+                    <span className="font-semibold tabular-nums">{formatPrice(line.amount)}</span>
                   </div>
                 ))}
                 <div className="pt-2 border-t border-stone-200/80 dark:border-stone-800 flex items-center justify-between text-stone-600 dark:text-stone-300">
@@ -1056,7 +1117,10 @@ export default function Order() {
               )}
 
               <p className="mt-3 text-xs text-stone-500 dark:text-stone-500">
-                Square sandbox test payment — no real card was charged. This order was sent to the staff board.
+                {import.meta.env.VITE_SQUARE_ENV !== "production"
+                  ? "Square sandbox test payment — no real card was charged. "
+                  : ""}
+                We've got your order and we'll have it ready at the counter.
                 {confirmedOrder.paymentId && <> Payment ref: {confirmedOrder.paymentId}</>}
               </p>
 
@@ -1079,13 +1143,17 @@ export default function Order() {
               </div>
               {!openStatus.isOpen ? (
                 <div className="text-xs text-red-600 dark:text-red-400 mt-0.5">We're closed right now — ordering unavailable</div>
+              ) : overMaximum ? (
+                <div className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                  Over the {formatPrice(MAX_ORDER_AMOUNT)} online limit — remove {formatPrice(amountOverMax)}, or call us for bigger orders
+                </div>
               ) : belowMinimum && (
                 <div className="text-xs text-red-600 dark:text-red-400 mt-0.5">
                   Add {formatPrice(amountToMinimum)} more to reach the {formatPrice(MIN_ORDER_AMOUNT)} minimum order
                 </div>
               )}
             </div>
-            <button onClick={goToCheckout} disabled={belowMinimum || !openStatus.isOpen} className={disabledClass(ui.beigePrimarySm)}>Checkout</button>
+            <button onClick={goToCheckout} disabled={belowMinimum || overMaximum || !openStatus.isOpen} className={disabledClass(ui.beigePrimarySm)}>Checkout</button>
           </div>
         </div>
       )}
